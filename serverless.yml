@@ -1,0 +1,84 @@
+service:
+  name: ans-prototype-two
+
+custom:
+  # opt:stage permite pasar un stage name por parametros al hacer el deploy
+  stage: ${opt:stage, self:provider.stage}
+  webpack:
+    webpackConfig: ./webpack.config.js
+    includeModules: true
+  settings:
+    STATUS_TABLE: ${self:custom.stage}-ans-status
+    AWS_NODEJS_CONNECTION_REUSE_ENABLED: 1
+
+# Add the serverless-webpack plugin
+plugins:
+  - serverless-webpack
+  - serverless-offline
+  - serverless-iam-roles-per-function
+  - serverless-create-global-dynamodb-table
+  - serverless-prune-plugin
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  stage: dev
+  region: us-east-2
+  apiGateway:
+    minimumCompressionSize: 1024 # Enable gzip compression for responses > 1 KB
+  environment: ${self:custom.settings}
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - dynamodb:DescribeTable
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+      Resource:
+        - "arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.STATUS_TABLE}"
+    - Effect: "Allow"
+      Action:
+        - ses:SendEmail
+        - ses:SendTemplatedEmail
+        - ses:CreateTemplate
+        - ses:DeleteTemplate
+      Resource: "*"
+        
+resources:
+  Resources:
+    statusTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.STATUS_TABLE}
+        AttributeDefinitions:
+          - AttributeName: Email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: Email
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+
+functions:
+  send:
+    handler: handler.sendEmail
+    events:
+      - http:
+          method: post
+          path: email
+
+  createTemplate:
+    handler: handler.createTemplate
+    events:
+      - http:
+          method: post
+          path: template
+  deleteTemplate:
+    handler: handler.deleteTemplate
+    events:
+      - http:
+          method: delete
+          path: template/{name}
